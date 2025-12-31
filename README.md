@@ -2,6 +2,8 @@
 
 CSI server and client to display real-time CSI data. Based on https://github.com/LukasVirecGL/meta-gl-motion-detection.
 
+![Demo](https://raw.githubusercontent.com/MtkWifiRev/MtkCSIdump/refs/heads/main/csi_demo.gif)
+
 ## Features
 
 - Real-time CSI data visualization
