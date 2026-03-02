@@ -43,6 +43,37 @@ python3 csi_udp_client_gui.py 192.168.1.1 8888
 ### Base Image: tested on for OpenWRT One:
 -  see releases for squashfs update bin, based on [24.10.1 (r28597-0425664679)](https://firmware-selector.openwrt.org/?version=24.10.1&target=mediatek%2Ffilogic&id=openwrt_one)
 
+### Install patched mt76 kernel modules (safe, non-destructive):
+
+The release provides a `mt76-modules-<version>.tar.gz` archive that contains the
+patched kernel modules **and** an installer script.  The installer places modules in
+the kernel's `extra/` override directory so that **the original system modules are
+never overwritten** — if anything goes wrong you can simply restore and reboot.
+
+```sh
+# 1. Copy the archive to the router
+scp mt76-modules-*.tar.gz root@192.168.1.1:/tmp/
+
+# 2. Extract on the router
+cd /tmp && tar xzf mt76-modules-*.tar.gz && cd mt76-modules
+
+# 3. Install (originals are NOT touched)
+sh install_modules.sh
+
+# 4. Reboot
+reboot
+```
+
+Check installation status at any time:
+```sh
+sh install_modules.sh --status
+```
+
+Restore original drivers and reboot:
+```sh
+sh install_modules.sh --restore && reboot
+```
+
 ### Copy mt76 firmware:
 - see releses for binaries: `mt7981_rom_patch.bin`, `mt7981_wa.bin`, `mt7981_wm.bin`, `mt7981_wo.bin`
 - copy them to `/lib/firmware/mediatek/`
