@@ -293,25 +293,25 @@ jobs:
 
     steps:
       - name: Download CSIdump binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.1.3
         with:
           name: CSIdump-binary
           path: release-assets
 
       - name: Download OpenWRT One image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.1.3
         with:
           name: openwrt-image-openwrt-one
           path: release-assets/images
 
       - name: Download Xiaomi AX3000T image
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.1.3
         with:
           name: openwrt-image-xiaomi-ax3000t
           path: release-assets/images
 
       - name: Download mt76 kernel modules (from OpenWRT One build)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v4.1.3
         with:
           name: ko-files-openwrt-one
           path: release-assets/ko
