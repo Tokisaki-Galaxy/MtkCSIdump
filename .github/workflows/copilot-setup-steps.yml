@@ -1,0 +1,131 @@
+name: "Copilot Setup Steps"
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+  pull_request:
+    paths:
+      - .github/workflows/copilot-setup-steps.yml
+
+env:
+  OPENWRT_VERSION: "24.10.1"
+  SDK_TARGET: mediatek/filogic
+  SDK_ARCH: aarch64_cortex-a53
+  SDK_GCC: gcc-13.3.0_musl
+  SDK_DIR: /home/runner/openwrt-sdk
+
+jobs:
+  copilot-setup-steps:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      # ── Source code ────────────────────────────────────────────
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ── Host build toolchain ───────────────────────────────────
+      - name: Install host build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake ninja-build rsync unzip wget \
+            libncurses5-dev libssl-dev zlib1g-dev \
+            gawk gettext python3 python3-pip \
+            file tree jq ripgrep \
+            qemu-user-static binfmt-support \
+            ccache
+
+      # ── Python GUI dependencies ────────────────────────────────
+      - name: Install Python GUI dependencies
+        run: |
+          pip3 install --quiet -r requirements.txt || true
+
+      # ── OpenWrt SDK (cross-compiler + kernel headers) ──────────
+      - name: Cache OpenWrt SDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.SDK_DIR }}
+          key: ${{ runner.os }}-openwrt-sdk-${{ env.OPENWRT_VERSION }}-${{ env.SDK_TARGET }}-${{ env.SDK_ARCH }}
+
+      - name: Download and extract OpenWrt SDK
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          RELEASE="${OPENWRT_VERSION}"
+          BASE_URL="https://downloads.openwrt.org/releases/${RELEASE}/targets/${SDK_TARGET}"
+          SDK_FILE=$(curl -fsSL "${BASE_URL}/" | \
+            grep -oP 'openwrt-sdk-[^"]+\.tar\.(xz|zst)' | head -n1)
+          echo "Downloading ${BASE_URL}/${SDK_FILE}"
+          wget -q "${BASE_URL}/${SDK_FILE}" -O sdk.tar
+          mkdir -p "${SDK_DIR}"
+          tar --strip-components=1 -xf sdk.tar -C "${SDK_DIR}"
+          rm sdk.tar
+
+      - name: Update SDK feeds
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        working-directory: ${{ env.SDK_DIR }}
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a || true
+          make defconfig
+
+      - name: Expose SDK environment variables
+        run: |
+          TC_DIR=$(find "${SDK_DIR}/staging_dir" -maxdepth 1 -type d \
+            -name "toolchain-${SDK_ARCH}_${SDK_GCC}" | head -n1)
+          TARGET_DIR=$(find "${SDK_DIR}/staging_dir" -maxdepth 1 -type d \
+            -name "target-${SDK_ARCH}_musl" | head -n1)
+
+          echo "OPENWRT_CC=${TC_DIR}/bin/aarch64-openwrt-linux-gcc"   >> "$GITHUB_ENV"
+          echo "OPENWRT_CXX=${TC_DIR}/bin/aarch64-openwrt-linux-g++"  >> "$GITHUB_ENV"
+          echo "OPENWRT_SYSROOT=${TARGET_DIR}"                         >> "$GITHUB_ENV"
+          echo "LIBNL_TINY_PATH=${TARGET_DIR}/usr/lib"                 >> "$GITHUB_ENV"
+          echo "LIBNL_TINY_INCLUDE=${TARGET_DIR}/usr/include/libnl-tiny" >> "$GITHUB_ENV"
+          echo "SDK_DIR=${SDK_DIR}"                                     >> "$GITHUB_ENV"
+          # OpenWrt 工具链严格要求存在 STAGING_DIR 环境变量，否则 gcc wrapper 会报错
+          echo "STAGING_DIR=${SDK_DIR}/staging_dir"                     >> "$GITHUB_ENV"
+          echo "PATH=${TC_DIR}/bin:$PATH"                              >> "$GITHUB_ENV"
+
+      - name: Cross-compile libnl-tiny static library
+        run: |
+          echo ">>> 1. Cloning libnl-tiny source..."
+          git clone https://git.openwrt.org/project/libnl-tiny.git /tmp/libnl-tiny
+
+          echo ">>> 2. CMake Cross-Compiling..."
+          cd /tmp/libnl-tiny
+          # 使用 BUILD_SHARED_LIBS=OFF 强制输出静态库 .a
+          cmake -B build \
+            -DCMAKE_C_COMPILER="${OPENWRT_CC}" \
+            -DCMAKE_SYSROOT="${OPENWRT_SYSROOT}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -G Ninja
+
+          cmake --build build
+
+          echo ">>> 3. Installing to SDK sysroot..."
+          mkdir -p "${LIBNL_TINY_PATH}"
+          mkdir -p "${LIBNL_TINY_INCLUDE}"
+          cp build/libnl-tiny.a "${LIBNL_TINY_PATH}/"
+          cp -r include/* "${LIBNL_TINY_INCLUDE}/"
+
+      # ── Verify cross-compilation toolchain ────────────────────
+      - name: Verify toolchain
+        run: |
+          echo "=== Cross-compiler ==="
+          "$OPENWRT_CXX" --version
+
+          echo "=== libnl-tiny static library ==="
+          if [ -f "${LIBNL_TINY_PATH}/libnl-tiny.a" ]; then
+            echo "Found: ${LIBNL_TINY_PATH}/libnl-tiny.a"
+            file "${LIBNL_TINY_PATH}/libnl-tiny.a"
+          else
+            echo "::warning::libnl-tiny.a not found in ${LIBNL_TINY_PATH}"
+            find "${SDK_DIR}" -name "libnl-tiny.a" 2>/dev/null | head -5
+          fi
+
+          echo "=== libnl-tiny headers ==="
+          ls "${LIBNL_TINY_INCLUDE}/" || echo "::warning::Headers not found"
