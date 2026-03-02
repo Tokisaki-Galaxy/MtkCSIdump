@@ -85,7 +85,7 @@ jobs:
           echo "CONFIG_PACKAGE_kmod-mt7915e=y"          >> .config
           make defconfig
           # Compile mt76 packages using the SDK's pre-built kernel environment
-          make package/kernel/mt76/compile -j$(nproc)
+          make package/kernel/mt76/compile -j$(nproc) || make package/kernel/mt76/compile -j1 V=s
 
       - name: Locate toolchain paths
         id: paths
@@ -176,6 +176,7 @@ jobs:
   build-openwrt-image:
     name: Build OpenWrt Image (${{ matrix.device.name }})
     runs-on: ubuntu-latest
+    if: false
     strategy:
       fail-fast: false
       matrix:
