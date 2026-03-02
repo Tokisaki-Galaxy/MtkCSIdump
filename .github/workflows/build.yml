@@ -187,57 +187,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            build-essential rsync unzip wget zstd \
-            libncurses5-dev libssl-dev zlib1g-dev \
-            gawk gettext python3 file qemu-utils
-
-  # -- SDK (for kernel module build) ----------------------------------
-      - name: Cache OpenWrt SDK
-        id: cache-sdk
-        uses: actions/cache@v4
-        with:
-          path: ${{ env.SDK_DIR }}
-          key: ${{ runner.os }}-openwrt-sdk-${{ env.OPENWRT_VERSION }}-${{ env.SDK_TARGET }}-${{ env.SDK_ARCH }}
-
-      - name: Download and extract OpenWrt SDK
-        if: steps.cache-sdk.outputs.cache-hit != 'true'
-        run: |
-          RELEASE="${OPENWRT_VERSION}"
-          BASE_URL="https://downloads.openwrt.org/releases/${RELEASE}/targets/${SDK_TARGET}"
-          SDK_FILE=$(curl -fsSL "${BASE_URL}/" | grep -oP 'openwrt-sdk-[^"]+\.tar\.(xz|zst)' | head -n1)
-          wget -q "${BASE_URL}/${SDK_FILE}" -O sdk.tar
-          mkdir -p "${SDK_DIR}"
-          tar --strip-components=1 -xf sdk.tar -C "${SDK_DIR}"
-
-      - name: Set up SDK feeds and build mt76 kernel modules
-        working-directory: ${{ env.SDK_DIR }}
-        run: |
-          ./scripts/feeds update -a
-          ./scripts/feeds install -a || true
-          make defconfig
-          
-          # 确保配置中开启了所需的包
-          echo "CONFIG_PACKAGE_kmod-mt76=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-mt76-connac-lib=y" >> .config
-          echo "CONFIG_PACKAGE_kmod-mt7915e=y" >> .config
-          make defconfig
-
-          # 动态搜索 mt76 Makefile 的路径并编译
-          MT76_PATH=$(find package -name Makefile | grep mt76 | head -n1 | sed 's/\/Makefile//g')
-          if [ -z "$MT76_PATH" ]; then
-            echo "::error::Could not find mt76 package in SDK"
-            exit 1
-          fi
-          echo "Found mt76 at: $MT76_PATH"
-          make $MT76_PATH/compile -j$(nproc) V=s
-
-      - name: Collect mt76 kernel module .ko files
-        id: collect-ko
-        run: |
-          KO_OUT="${GITHUB_WORKSPACE}/ko-files"
-          mkdir -p "$KO_OUT"
-          find "${SDK_DIR}/build_dir" -name "*.ko" -exec cp {} "$KO_OUT/" \;
-          echo "ko_dir=${KO_OUT}" >> "$GITHUB_OUTPUT"
+            build-essential rsync unzip wget zstd python3 file
 
       - name: Cache OpenWrt ImageBuilder
         id: cache-ib
@@ -276,6 +226,25 @@ jobs:
             -j$(nproc) V=s
           echo "image_dir=${OUT}" >> "$GITHUB_OUTPUT"
 
+      - name: Collect mt76 .ko files from ImageBuilder rootfs
+        id: collect-ko
+        run: |
+          IB_DIR="/home/runner/openwrt-imagebuilder"
+          KO_OUT="${GITHUB_WORKSPACE}/ko-files"
+          mkdir -p "$KO_OUT"
+
+          # The ImageBuilder installs packages into a rootfs under build_dir/.
+          # Find all mt76/mt7915/mt7916 kernel modules installed there.
+          find "${IB_DIR}/build_dir" -name "*.ko" 2>/dev/null \
+            | grep -E "mt76|mt7915|mt7916" \
+            | while IFS= read -r ko; do
+                cp "$ko" "$KO_OUT/$(basename "$ko")"
+              done
+
+          echo "Collected .ko files:"
+          ls -lh "$KO_OUT/" 2>/dev/null || echo "(none)"
+          echo "ko_dir=${KO_OUT}" >> "$GITHUB_OUTPUT"
+
       - name: Upload sysupgrade image artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -288,6 +257,7 @@ jobs:
         with:
           name: ko-files-${{ matrix.device.name }}
           path: ${{ steps.collect-ko.outputs.ko_dir }}
+          if-no-files-found: warn
           retention-days: 7
 
   # ──────────────────────────────────────────────────────────────
