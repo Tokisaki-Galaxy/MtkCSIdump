@@ -1,9 +1,5 @@
 name: "Copilot Setup Steps"
 
-# This workflow pre-installs the tools and environment that GitHub Copilot
-# needs for editing, building and testing this repository.
-# Reference: https://docs.github.com/en/copilot/customizing-copilot/customizing-the-development-environment-for-copilot-coding-agent
-
 on:
   workflow_dispatch:
   push:
@@ -69,15 +65,13 @@ jobs:
           tar --strip-components=1 -xf sdk.tar -C "${SDK_DIR}"
           rm sdk.tar
 
-      - name: Update SDK feeds and build libnl-tiny
+      - name: Update SDK feeds
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         working-directory: ${{ env.SDK_DIR }}
         run: |
           ./scripts/feeds update -a
           ./scripts/feeds install -a || true
-          make package/libs/libnl-tiny/compile \
-            CONFIG_PACKAGE_libnl-tiny=y \
-            -j$(nproc) V=s 2>&1 | tail -20
+          make defconfig
 
       - name: Expose SDK environment variables
         run: |
@@ -92,7 +86,31 @@ jobs:
           echo "LIBNL_TINY_PATH=${TARGET_DIR}/usr/lib"                 >> "$GITHUB_ENV"
           echo "LIBNL_TINY_INCLUDE=${TARGET_DIR}/usr/include/libnl-tiny" >> "$GITHUB_ENV"
           echo "SDK_DIR=${SDK_DIR}"                                     >> "$GITHUB_ENV"
+          # OpenWrt 工具链严格要求存在 STAGING_DIR 环境变量，否则 gcc wrapper 会报错
+          echo "STAGING_DIR=${SDK_DIR}/staging_dir"                     >> "$GITHUB_ENV"
           echo "PATH=${TC_DIR}/bin:$PATH"                              >> "$GITHUB_ENV"
+
+      - name: Cross-compile libnl-tiny static library
+        run: |
+          echo ">>> 1. Cloning libnl-tiny source..."
+          git clone https://git.openwrt.org/project/libnl-tiny.git /tmp/libnl-tiny
+
+          echo ">>> 2. CMake Cross-Compiling..."
+          cd /tmp/libnl-tiny
+          # 使用 BUILD_SHARED_LIBS=OFF 强制输出静态库 .a
+          cmake -B build \
+            -DCMAKE_C_COMPILER="${OPENWRT_CC}" \
+            -DCMAKE_SYSROOT="${OPENWRT_SYSROOT}" \
+            -DBUILD_SHARED_LIBS=OFF \
+            -G Ninja
+
+          cmake --build build
+
+          echo ">>> 3. Installing to SDK sysroot..."
+          mkdir -p "${LIBNL_TINY_PATH}"
+          mkdir -p "${LIBNL_TINY_INCLUDE}"
+          cp build/libnl-tiny.a "${LIBNL_TINY_PATH}/"
+          cp -r include/* "${LIBNL_TINY_INCLUDE}/"
 
       # ── Verify cross-compilation toolchain ────────────────────
       - name: Verify toolchain
@@ -111,24 +129,3 @@ jobs:
 
           echo "=== libnl-tiny headers ==="
           ls "${LIBNL_TINY_INCLUDE}/" || echo "::warning::Headers not found"
-
-      # ── CMake configure (dry-run to validate build setup) ──────
-      - name: CMake configure (verify build setup)
-        run: |
-          cmake -B /tmp/csidump-build \
-            -DCMAKE_TOOLCHAIN_FILE="${GITHUB_WORKSPACE}/toolchain-aarch64-openwrt.cmake" \
-            -DLIBNL_TINY_PATH="${LIBNL_TINY_PATH}" \
-            -DLIBNL_TINY_INCLUDE="${LIBNL_TINY_INCLUDE}" \
-            -G Ninja
-          echo "CMake configuration successful"
-
-      # ── (Optional) Full compile check ─────────────────────────
-      - name: Build CSIdump binary
-        run: |
-          cmake --build /tmp/csidump-build -j$(nproc)
-          echo "=== CSIdump binary info ==="
-          file /tmp/csidump-build/CSIdump
-
-      # ── Repository tree overview ───────────────────────────────
-      - name: Show repository structure
-        run: tree -L 3 --noreport "${GITHUB_WORKSPACE}" 2>/dev/null || find "${GITHUB_WORKSPACE}" -not -path '*/\.*' -maxdepth 3 | sort
