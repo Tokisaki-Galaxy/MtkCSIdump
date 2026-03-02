@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.1)
+cmake_minimum_required(VERSION 3.10)
 project(CSIdump)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -31,7 +31,19 @@ if(NOT DEFINED LIBNL_TINY_INCLUDE)
   set(LIBNL_TINY_INCLUDE /data/mediatek/leaks/meta-gl-motion-detection/recipes-ccsp/hal/files/libnl-tiny_bin/usr/local/include/libnl-tiny/)
 endif()
 
-find_library(LIBNL_TINY nl-tiny PATHS ${LIBNL_TINY_PATH})
+# Must be set before find_library so only the static archive is matched.
+# NO_DEFAULT_PATH + NO_CMAKE_FIND_ROOT_PATH prevent cross-compile sysroot
+# mangling of the explicitly supplied absolute path.
+set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
+find_library(LIBNL_TINY nl-tiny
+  PATHS ${LIBNL_TINY_PATH}
+  NO_DEFAULT_PATH
+  NO_CMAKE_FIND_ROOT_PATH
+)
+if(NOT LIBNL_TINY)
+  message(FATAL_ERROR "libnl-tiny.a not found in ${LIBNL_TINY_PATH}. "
+    "Pass -DLIBNL_TINY_PATH=<dir> pointing to the directory that contains libnl-tiny.a.")
+endif()
 
 include_directories(${LIBNL_TINY_INCLUDE})
 
@@ -39,7 +51,6 @@ add_compile_options(-Wall -Wextra)
 
 # Static linking configuration
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static")
-set(CMAKE_FIND_LIBRARY_SUFFIXES ".a")
 
 find_package(Threads REQUIRED)
 target_link_libraries(CSIdump PRIVATE Threads::Threads ${LIBNL_TINY} -lgcc_eh -lgcc -static-libgcc -static-libstdc++)

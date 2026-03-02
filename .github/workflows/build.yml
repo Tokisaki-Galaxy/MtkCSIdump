@@ -160,6 +160,24 @@ jobs:
               kmod-mt76 kmod-mt76-connac-lib kmod-mt7915e kmod-mt7916-firmware
               kmod-mt76-usb kmod-mt76x2 kmod-mt76-sdio
               luci luci-base
+          - name: glinet-mt6000
+            profile: glinet_gl-mt6000
+            packages: >-
+              kmod-mt76 kmod-mt76-connac-lib kmod-mt7915e kmod-mt7916-firmware
+              kmod-mt76-usb kmod-mt76x2 kmod-mt76-sdio
+              luci luci-base
+          - name: bananapi-bpi-r4
+            profile: bananapi_bpi-r4
+            packages: >-
+              kmod-mt76 kmod-mt76-connac-lib kmod-mt7915e kmod-mt7916-firmware
+              kmod-mt76-usb kmod-mt76x2 kmod-mt76-sdio
+              luci luci-base
+          - name: xiaomi-wr30u
+            profile: xiaomi_mi-router-wr30u-ubootmod
+            packages: >-
+              kmod-mt76 kmod-mt76-connac-lib kmod-mt7915e kmod-mt7916-firmware
+              kmod-mt76-usb kmod-mt76x2 kmod-mt76-sdio
+              luci luci-base
 
     steps:
       - name: Checkout repository
